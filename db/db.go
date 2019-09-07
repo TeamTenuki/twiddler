@@ -3,41 +3,23 @@ package db
 import (
 	"context"
 	"log"
-	"os"
 	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/TeamTenuki/twiddler/config"
 )
 
-var DB *sqlx.DB
-
-func GetConfigDirectory() string {
-	homedir, exists := os.LookupEnv("HOME")
-	if !exists {
-		log.Fatalf("No home directory to store config at!")
-	}
-
-	configDir := filepath.Join(homedir, ".config", "twiddler")
-	fi, err := os.Lstat(configDir)
-	if os.IsNotExist(err) {
-		if err := os.MkdirAll(configDir, 0777); err != nil {
-			log.Fatalf("Can't create config dir: %s", err)
-		}
-		fi, err = os.Lstat(configDir)
-	}
-
-	if err != nil || !fi.IsDir() {
-		log.Fatalf("Can't open a config directory (err: %s) (isDir: %t)", err, fi.IsDir())
-	}
-
-	return configDir
-}
+var db *sqlx.DB
 
 func init() {
-	configDir := GetConfigDirectory()
+	configDir, err := config.Dir()
+	if err != nil {
+		log.Fatalf("ERROR: %s", err)
+	}
 
-	DB = sqlx.MustOpen("sqlite3", filepath.Join(configDir, "twiddler.db"))
+	db = sqlx.MustOpen("sqlite3", filepath.Join(configDir, "twiddler.db"))
 }
 
 type contextKey int
@@ -47,7 +29,7 @@ const (
 )
 
 func NewContext(c context.Context) context.Context {
-	return context.WithValue(c, dbContextKey, DB)
+	return context.WithValue(c, dbContextKey, db)
 }
 
 func FromContext(c context.Context) *sqlx.DB {

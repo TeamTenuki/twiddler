@@ -1,4 +1,4 @@
-package main
+package twiddler
 
 import (
 	"context"
@@ -19,7 +19,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"./db"
+	"github.com/TeamTenuki/twiddler/config"
+	"github.com/TeamTenuki/twiddler/db"
 )
 
 var cmdline struct {
@@ -31,12 +32,16 @@ type Config struct {
 	DiscordAPI string `json:"discord-api-key"`
 }
 
-func main() {
+func Main() {
 	flag.StringVar(&cmdline.config, "config", "", "Path to a configuration file containing API keys.")
 	flag.Parse()
 
 	if cmdline.config == "" {
-		configDir := db.GetConfigDirectory()
+		configDir, err := config.Dir()
+		if err != nil {
+			log.Fatalf("ERROR: %s", err)
+		}
+
 		cmdline.config = filepath.Join(configDir, "config.json")
 	}
 
