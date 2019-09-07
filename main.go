@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"time"
-	"path/filepath"
 
 	"github.com/bwmarrin/discordgo"
 
