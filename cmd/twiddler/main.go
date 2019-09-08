@@ -49,6 +49,8 @@ func withSignalCancel(c context.Context) context.Context {
 
 		<-sc
 
+		log.Println("Program shutdown...")
+
 		cancel()
 	}()
 
