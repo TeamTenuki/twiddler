@@ -2,6 +2,7 @@ package twiddler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,14 +71,17 @@ type Stream struct {
 	// Twitch username of the channel owner.
 	UserName string `json:"user_name"`
 
+	// Twitch user ID.
+	UserID string `json:"user_id"`
+
 	// Channel title.
 	Title string `json:"title"`
 
 	// Live stream thumbnail URL.
 	Thumbnail string `json:"thumbnail_url"`
 
-	// Unique channel identifier.
-	ChannelID string `json:"id" db:"channel_id"`
+	// Unique stream identifier.
+	ID string `json:"id" db:"stream_id"`
 
 	// ISO-8601 date/time of stream going live.
 	StartedAt string `json:"started_at" db:"started_at"`
@@ -113,23 +117,35 @@ func streamHandler(c context.Context, s *discordgo.Session, streamC chan []Strea
 	outer:
 		for _, stream := range streams {
 			for _, liveStream := range currentlyLive {
-				if stream.ChannelID == liveStream.ChannelID {
+				if stream.ID == liveStream.ID {
 					continue outer
 				}
 			}
 
-			var alreadyReported string
-			err := db.GetContext(c, &alreadyReported, `SELECT [started_at]
-FROM [reports] WHERE [channel_id] = ? AND [started_at] = ?
-LIMIT 1`,
-				stream.ChannelID,
-				stream.StartedAt)
+			// Default date/time that will be used if there are no rows for given channel.
+			var alreadyReported = "2006-01-02T15:04:05Z"
 
-			if err == nil {
+			err := db.GetContext(c, &alreadyReported, `SELECT [started_at]
+			FROM [reports]
+			WHERE [user_id] = ?
+			ORDER BY datetime([started_at]) DESC
+			LIMIT 1`,
+				stream.UserID)
+
+			if err != nil && err != sql.ErrNoRows {
+				log.Printf("Failed to retrieve rows from DB: %s", err)
+				return // This error may indicate a broken connection, we need to restart program.
+			}
+
+			t, err := time.Parse(time.RFC3339, alreadyReported)
+			if err != nil {
+				log.Printf("Failed to parse date/time from reported stream: %s", err)
 				continue
 			}
 
-			reportableStreams = append(reportableStreams, stream)
+			if time.Since(t) > time.Hour {
+				reportableStreams = append(reportableStreams, stream)
+			}
 		}
 
 		var spammableRooms []string
@@ -158,9 +174,14 @@ LIMIT 1`,
 		}
 
 		for _, stream := range reportableStreams {
-			_, err := db.ExecContext(c, `INSERT INTO [reports] ([channel_id], [started_at]) VALUES (?, ?)`, stream.ChannelID, stream.StartedAt)
+			_, err := db.ExecContext(c, `INSERT INTO [reports]
+			([user_id], [stream_id], [started_at]) VALUES (?, ?, ?)`,
+				stream.UserID,
+				stream.ID,
+				stream.StartedAt)
 			if err != nil {
-				log.Printf("Failed to add row for %q %q: %s", stream.ChannelID, stream.StartedAt, err)
+				log.Printf("Failed to add row for %q %q %q: %s",
+					stream.UserID, stream.ID, stream.StartedAt, err)
 			}
 		}
 
