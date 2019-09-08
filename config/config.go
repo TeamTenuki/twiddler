@@ -29,17 +29,17 @@ func Dir() (string, error) {
 	fi, err := os.Lstat(configDir)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(configDir, 0777); err != nil {
-			return "", fmt.Errorf("Can't create config dir: %w", err)
+			return "", fmt.Errorf("can't create config dir: %w", err)
 		}
 		fi, err = os.Lstat(configDir)
 	}
 
 	if err != nil {
-		return "", fmt.Errorf("Can't find config directory: %w", err)
+		return "", fmt.Errorf("can't find config directory: %w", err)
 	}
 
 	if !fi.IsDir() {
-		return "", fmt.Errorf("Config directory isn't a directory")
+		return "", ErrConfigDir
 	}
 
 	return configDir, nil
