@@ -2,12 +2,8 @@ package twiddler
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -16,13 +12,14 @@ import (
 
 	"github.com/TeamTenuki/twiddler/config"
 	"github.com/TeamTenuki/twiddler/db"
+	"github.com/TeamTenuki/twiddler/tracker"
 )
 
 // Run is the main entry point that starts the bot interaction with the world.
 // It manages cancellation through the c context parameter, i.e. Run will return
 // when c.Done() is closed.
 func Run(c context.Context, config *config.Config) error {
-	setupDB(c)
+	db.SetupDB(c)
 
 	dg, err := discordgo.New("Bot " + config.DiscordAPI)
 	if err != nil {
@@ -37,9 +34,11 @@ func Run(c context.Context, config *config.Config) error {
 		return fmt.Errorf("failed to open a WebSocket connection: %w", err)
 	}
 
-	streamC := streamSupply(config.TwitchAPI)
+	r := newDiscordReporter(dg)
+	p := newTwitchPoker(config.TwitchAPI, 2*time.Second)
+	t := tracker.NewTracker(p, r)
 
-	go streamHandler(c, dg, streamC)
+	go t.Track(c)
 
 	<-c.Done()
 
@@ -66,161 +65,41 @@ func mentionsBot(s *discordgo.Session, ms []*discordgo.User) bool {
 	return false
 }
 
-// Stream describes relevant information about a Twitch channel.
-type Stream struct {
-	// Twitch username of the channel owner.
-	UserName string `json:"user_name"`
-
-	// Twitch user ID.
-	UserID string `json:"user_id"`
-
-	// Channel title.
-	Title string `json:"title"`
-
-	// Live stream thumbnail URL.
-	Thumbnail string `json:"thumbnail_url"`
-
-	// Unique stream identifier.
-	ID string `json:"id" db:"stream_id"`
-
-	// ISO-8601 date/time of stream going live.
-	StartedAt string `json:"started_at" db:"started_at"`
+type discordReporter struct {
+	s *discordgo.Session
+	r *strings.Replacer
 }
 
-// StreamContainer represents unmarshalled JSON response from Twitch.
-type StreamContainer struct {
-	Data       []Stream `json:"data"`
-	Pagination struct {
-		Cursor string `json:"cursor,omitempty"`
-	} `json:"pagination,omitempty"`
-}
+func newDiscordReporter(s *discordgo.Session) tracker.Reporter {
+	r := strings.NewReplacer("{width}", "1280", "{height}", "720")
 
-var currentlyLive []Stream
-
-// FIXME(destroycomputers): Refactor this garbage bin.
-func streamHandler(c context.Context, s *discordgo.Session, streamC chan []Stream) {
-	db := db.FromContext(c)
-
-	// TODO(destroycomputers): Consider making this configurable.
-	rep := strings.NewReplacer("{width}", "1280", "{height}", "720")
-
-	for streams := range streamC {
-		select {
-		default:
-		case <-c.Done():
-			close(streamC)
-			continue
-		}
-
-		reportableStreams := make([]Stream, 0)
-
-	outer:
-		for _, stream := range streams {
-			for _, liveStream := range currentlyLive {
-				if stream.ID == liveStream.ID {
-					continue outer
-				}
-			}
-
-			// Default date/time that will be used if there are no rows for given channel.
-			var alreadyReported = "2006-01-02T15:04:05Z"
-
-			err := db.GetContext(c, &alreadyReported, `SELECT [started_at]
-			FROM [reports]
-			WHERE [user_id] = ?
-			ORDER BY datetime([started_at]) DESC
-			LIMIT 1`,
-				stream.UserID)
-
-			if err != nil && err != sql.ErrNoRows {
-				log.Printf("Failed to retrieve rows from DB: %s", err)
-				return // This error may indicate a broken connection, we need to restart program.
-			}
-
-			t, err := time.Parse(time.RFC3339, alreadyReported)
-			if err != nil {
-				log.Printf("Failed to parse date/time from reported stream: %s", err)
-				continue
-			}
-
-			if time.Since(t) > time.Hour {
-				reportableStreams = append(reportableStreams, stream)
-			}
-		}
-
-		var spammableRooms []string
-		db.SelectContext(c, &spammableRooms, `SELECT [room_id] FROM [rooms]`)
-
-		for _, room := range spammableRooms {
-			for _, stream := range reportableStreams {
-				channel, err := s.Channel(room)
-				if err != nil {
-					log.Printf("Failed to retrieve channel %q: %s", room, err)
-				}
-
-				s.ChannelMessageSendEmbed(channel.ID, &discordgo.MessageEmbed{
-					Title:       fmt.Sprintf("%s Went Live!", stream.UserName),
-					Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.UserName),
-					Image: &discordgo.MessageEmbedImage{
-						URL:    rep.Replace(stream.Thumbnail),
-						Width:  1280,
-						Height: 720,
-					},
-					Footer: &discordgo.MessageEmbedFooter{
-						Text: fmt.Sprintf("Live since %s", stream.StartedAt),
-					},
-				})
-			}
-		}
-
-		for _, stream := range reportableStreams {
-			_, err := db.ExecContext(c, `INSERT INTO [reports]
-			([user_id], [stream_id], [started_at]) VALUES (?, ?, ?)`,
-				stream.UserID,
-				stream.ID,
-				stream.StartedAt)
-			if err != nil {
-				log.Printf("Failed to add row for %q %q %q: %s",
-					stream.UserID, stream.ID, stream.StartedAt, err)
-			}
-		}
-
-		currentlyLive = streams
+	return &discordReporter{
+		s: s,
+		r: r,
 	}
 }
 
-func streamSupply(twitchAPI string) chan []Stream {
-	c := make(chan []Stream)
+func (r *discordReporter) Report(c context.Context, roomID string, s *tracker.Stream) error {
+	_, err := r.s.ChannelMessageSendEmbed(roomID, &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("%s Went Live!", s.UserName),
+		Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", s.Title, s.UserName),
+		Image: &discordgo.MessageEmbedImage{
+			URL:    r.r.Replace(s.Thumbnail),
+			Width:  1280,
+			Height: 720,
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("Live since %s", s.StartedAt),
+		},
+	})
 
-	go func() {
-		for tick := range time.NewTicker(2 * time.Second).C {
-			req, err := http.NewRequest("GET", "https://api.twitch.tv/helix/streams?game_id=65360&first=100", nil)
-			if err != nil {
-				log.Panicf("[%s] Unexpected error: %s", tick, err)
-			}
-			req.Header.Add("Client-ID", twitchAPI)
+	return err
+}
 
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Printf("[%s] Failed to perform HTTP request: %s", tick, err)
-				continue
-			}
-			defer resp.Body.Close()
+func (r *discordReporter) ReportMessage(c context.Context, roomID string, content string) error {
+	_, err := r.s.ChannelMessageSend(roomID, content)
 
-			if resp.StatusCode == 200 {
-				var streamContainer StreamContainer
-
-				if err := json.NewDecoder(resp.Body).Decode(&streamContainer); err != nil {
-					log.Printf("[%s] Failed to decode JSON: %s", tick, err)
-					continue
-				}
-
-				c <- streamContainer.Data
-			}
-		}
-	}()
-
-	return c
+	return err
 }
 
 // FIXME(destroycomputers): Factor out commands into separate file or package.
@@ -249,14 +128,14 @@ func handleCommand(c context.Context, s *discordgo.Session, m *discordgo.Message
 }
 
 func listCommand(c context.Context, s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
-	if len(currentlyLive) == 0 {
+	if true {
 		s.ChannelMessageSend(m.ChannelID, "Nobody is currently streaming :pensive:")
 
 		return nil
 	}
 
 	fields := make([]*discordgo.MessageEmbedField, 0)
-	for _, stream := range currentlyLive {
+	for _, stream := range make([]*tracker.Stream, 0) {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:  stream.UserName,
 			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.UserName),
