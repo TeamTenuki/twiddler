@@ -5,9 +5,9 @@ import (
 )
 
 type Poker interface {
-	Poke() error
+	Poke(c context.Context) error
 	Close() error
-	Source() chan []Stream
+	Source() <-chan []Stream
 }
 
 type Reporter interface {

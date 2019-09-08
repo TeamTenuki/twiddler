@@ -2,11 +2,8 @@ package twiddler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -37,9 +34,11 @@ func Run(c context.Context, config *config.Config) error {
 		return fmt.Errorf("failed to open a WebSocket connection: %w", err)
 	}
 
-	// streamC := streamSupply(config.TwitchAPI)
+	r := newDiscordReporter(dg)
+	p := newTwitchPoker(config.TwitchAPI, 2*time.Second)
+	t := tracker.NewTracker(p, r)
 
-	// go streamHandler(c, dg, streamC)
+	go t.Track(c)
 
 	<-c.Done()
 
@@ -81,7 +80,7 @@ func newDiscordReporter(s *discordgo.Session) tracker.Reporter {
 }
 
 func (r *discordReporter) Report(c context.Context, roomID string, s *tracker.Stream) error {
-	_, err := r.s.ChannelMessageSendEmbed(s.ID, &discordgo.MessageEmbed{
+	_, err := r.s.ChannelMessageSendEmbed(roomID, &discordgo.MessageEmbed{
 		Title:       fmt.Sprintf("%s Went Live!", s.UserName),
 		Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", s.Title, s.UserName),
 		Image: &discordgo.MessageEmbedImage{
@@ -101,42 +100,6 @@ func (r *discordReporter) ReportMessage(c context.Context, roomID string, conten
 	_, err := r.s.ChannelMessageSend(roomID, content)
 
 	return err
-}
-
-var currentlyLive []tracker.Stream
-
-func streamSupply(twitchAPI string) chan []tracker.Stream {
-	c := make(chan []tracker.Stream)
-
-	go func() {
-		for tick := range time.NewTicker(2 * time.Second).C {
-			req, err := http.NewRequest("GET", "https://api.twitch.tv/helix/streams?game_id=65360&first=100", nil)
-			if err != nil {
-				log.Panicf("[%s] Unexpected error: %s", tick, err)
-			}
-			req.Header.Add("Client-ID", twitchAPI)
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Printf("[%s] Failed to perform HTTP request: %s", tick, err)
-				continue
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode == 200 {
-				var streamContainer tracker.StreamContainer
-
-				if err := json.NewDecoder(resp.Body).Decode(&streamContainer); err != nil {
-					log.Printf("[%s] Failed to decode JSON: %s", tick, err)
-					continue
-				}
-
-				c <- streamContainer.Data
-			}
-		}
-	}()
-
-	return c
 }
 
 // FIXME(destroycomputers): Factor out commands into separate file or package.
@@ -165,14 +128,14 @@ func handleCommand(c context.Context, s *discordgo.Session, m *discordgo.Message
 }
 
 func listCommand(c context.Context, s *discordgo.Session, m *discordgo.MessageCreate, args []string) error {
-	if len(currentlyLive) == 0 {
+	if true {
 		s.ChannelMessageSend(m.ChannelID, "Nobody is currently streaming :pensive:")
 
 		return nil
 	}
 
 	fields := make([]*discordgo.MessageEmbedField, 0)
-	for _, stream := range currentlyLive {
+	for _, stream := range make([]*tracker.Stream, 0) {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:  stream.UserName,
 			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.UserName),

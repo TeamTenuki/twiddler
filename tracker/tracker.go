@@ -24,12 +24,7 @@ func NewTracker(p Poker, r Reporter) *Tracker {
 }
 
 func (t *Tracker) Track(c context.Context) {
-	go t.p.Poke()
-
-	go func() {
-		<-c.Done()
-		t.p.Close()
-	}()
+	go t.p.Poke(c)
 
 	db := db.FromContext(c)
 
@@ -113,7 +108,11 @@ func (t *Tracker) excludeReported(c context.Context, ss []Stream) []Stream {
 	reportable := make([]Stream, 0)
 
 	for _, s := range ss {
-		dt, err := t.lastReportTime(c, s)
+		if t.wasReported(c, s) {
+			continue
+		}
+
+		dt, err := t.lastReportTimeForUser(c, s)
 		if err != nil {
 			log.Printf("Failed to retrieve last report: %s", err)
 		}
@@ -126,7 +125,17 @@ func (t *Tracker) excludeReported(c context.Context, ss []Stream) []Stream {
 	return reportable
 }
 
-func (t *Tracker) lastReportTime(c context.Context, s Stream) (time.Time, error) {
+func (t *Tracker) wasReported(c context.Context, s Stream) bool {
+	db := db.FromContext(c)
+
+	return sql.ErrNoRows != db.GetContext(c, new(string), `SELECT [started_at]
+	FROM [reports]
+	WHERE [stream_id] = ?
+	LIMIT 1`,
+		s.ID)
+}
+
+func (t *Tracker) lastReportTimeForUser(c context.Context, s Stream) (time.Time, error) {
 	db := db.FromContext(c)
 
 	// Default date/time that will be used if there are no rows for given channel.

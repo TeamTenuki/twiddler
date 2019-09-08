@@ -12,7 +12,7 @@ import (
 
 func TestStreamIsReported(t *testing.T) {
 	p, r, wg := setupTracker()
-	baselineTime := time.Now()
+	baselineTime := time.Now().UTC()
 
 	p.poke([]tracker.Stream{
 		{
@@ -29,9 +29,33 @@ func TestStreamIsReported(t *testing.T) {
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
+func TestSameStreamTwiceInOneBatchReportedOnce(t *testing.T) {
+	p, r, wg := setupTracker()
+	baselineTime := time.Now().UTC()
+
+	p.poke([]tracker.Stream{
+		{
+			UserID:    "user1",
+			ID:        "stream1",
+			StartedAt: baselineTime.Format(time.RFC3339),
+		},
+		{
+			UserID:    "user1",
+			ID:        "stream1",
+			StartedAt: baselineTime.Format(time.RFC3339),
+		},
+	})
+
+	p.Close()
+	wg.Wait()
+
+	bag := r.rooms["room1"]
+	expectStreamReports(t, bag.streams, "stream1")
+}
+
 func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 	p, r, wg := setupTracker()
-	baselineTime := time.Now()
+	baselineTime := time.Now().UTC()
 
 	p.poke([]tracker.Stream{
 		{
@@ -59,7 +83,7 @@ func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 
 func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
 	p, r, wg := setupTracker()
-	baselineTime := time.Now()
+	baselineTime := time.Now().UTC()
 
 	p.poke([]tracker.Stream{
 		{
@@ -86,13 +110,13 @@ func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
 
 func TestStreamRestartsMoreThanHourGapBothReported(t *testing.T) {
 	p, r, wg := setupTracker()
-	baselineTime := time.Now()
+	baselineTime := time.Now().UTC()
 
 	p.poke([]tracker.Stream{
 		{
 			UserID:    "user1",
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-2 * time.Hour).Format(time.RFC3339),
+			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute).Format(time.RFC3339),
 		},
 	})
 
@@ -109,6 +133,35 @@ func TestStreamRestartsMoreThanHourGapBothReported(t *testing.T) {
 
 	bag := r.rooms["room1"]
 	expectStreamReports(t, bag.streams, "stream1", "stream2")
+}
+
+func TestSameStreamOneHourLaterNotReported(t *testing.T) {
+	p, r, wg := setupTracker()
+	baselineTime := time.Now().UTC()
+
+	p.poke([]tracker.Stream{
+		{
+			UserID:    "user1",
+			ID:        "stream1",
+			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute).Format(time.RFC3339),
+		},
+	})
+
+	p.poke([]tracker.Stream{})
+
+	p.poke([]tracker.Stream{
+		{
+			UserID:    "user1",
+			ID:        "stream1",
+			StartedAt: baselineTime.Format(time.RFC3339),
+		},
+	})
+
+	p.Close()
+	wg.Wait()
+
+	bag := r.rooms["room1"]
+	expectStreamReports(t, bag.streams, "stream1")
 }
 
 //
@@ -205,7 +258,7 @@ func (p *pokerT) poke(ss []tracker.Stream) {
 	p.c <- ss
 }
 
-func (p *pokerT) Poke() error {
+func (p *pokerT) Poke(c context.Context) error {
 	return nil
 }
 
@@ -215,7 +268,7 @@ func (p *pokerT) Close() error {
 	return nil
 }
 
-func (p *pokerT) Source() chan []tracker.Stream {
+func (p *pokerT) Source() <-chan []tracker.Stream {
 	return p.c
 }
 
