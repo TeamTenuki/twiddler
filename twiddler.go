@@ -17,6 +17,9 @@ import (
 	"github.com/TeamTenuki/twiddler/db"
 )
 
+// Run is the main entry point that starts the bot interaction with the world.
+// It manages cancellation through the c context parameter, i.e. Run will return
+// when c.Done() is closed.
 func Run(c context.Context, config *config.Config) error {
 	setupDB(c)
 
@@ -62,14 +65,25 @@ func mentionsBot(s *discordgo.Session, ms []*discordgo.User) bool {
 	return false
 }
 
+// Stream describes relevant information about a Twitch channel.
 type Stream struct {
-	UserName  string `json:"user_name"`
-	Title     string `json:"title"`
+	// Twitch username of the channel owner.
+	UserName string `json:"user_name"`
+
+	// Channel title.
+	Title string `json:"title"`
+
+	// Live stream thumbnail URL.
 	Thumbnail string `json:"thumbnail_url"`
+
+	// Unique channel identifier.
 	ChannelID string `json:"id" db:"channel_id"`
+
+	// ISO-8601 date/time of stream going live.
 	StartedAt string `json:"started_at" db:"started_at"`
 }
 
+// StreamContainer represents unmarshalled JSON response from Twitch.
 type StreamContainer struct {
 	Data       []Stream `json:"data"`
 	Pagination struct {
@@ -79,15 +93,19 @@ type StreamContainer struct {
 
 var currentlyLive []Stream
 
+// FIXME(destroycomputers): Refactor this garbage bin.
 func streamHandler(c context.Context, s *discordgo.Session, streamC chan []Stream) {
 	db := db.FromContext(c)
 
-loop:
+	// TODO(destroycomputers): Consider making this configurable.
+	rep := strings.NewReplacer("{width}", "1280", "{height}", "720")
+
 	for streams := range streamC {
 		select {
 		default:
 		case <-c.Done():
-			break loop
+			close(streamC)
+			continue
 		}
 
 		reportableStreams := make([]Stream, 0)
@@ -128,9 +146,7 @@ LIMIT 1`,
 					Title:       fmt.Sprintf("%s Went Live!", stream.UserName),
 					Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.UserName),
 					Image: &discordgo.MessageEmbedImage{
-						URL: strings.Replace(strings.Replace(
-							stream.Thumbnail, "{width}", "1280", 1),
-							"{height}", "720", 1),
+						URL:    rep.Replace(stream.Thumbnail),
 						Width:  1280,
 						Height: 720,
 					},
@@ -150,8 +166,6 @@ LIMIT 1`,
 
 		currentlyLive = streams
 	}
-
-	close(streamC)
 }
 
 func streamSupply(twitchAPI string) chan []Stream {
@@ -188,6 +202,7 @@ func streamSupply(twitchAPI string) chan []Stream {
 	return c
 }
 
+// FIXME(destroycomputers): Factor out commands into separate file or package.
 var commands = map[string]func(c context.Context, s *discordgo.Session, m *discordgo.MessageCreate, args []string) error{
 	"list":   listCommand,
 	"spam":   spamCommand,
