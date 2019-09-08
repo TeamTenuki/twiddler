@@ -1,13 +1,12 @@
-package twiddler
+package db
 
 import (
 	"context"
-
-	"github.com/TeamTenuki/twiddler/db"
 )
 
-func setupDB(c context.Context) {
-	db := db.FromContext(c)
+// SetupDB creates necesseary tables.
+func SetupDB(c context.Context) {
+	db := FromContext(c)
 
 	db.MustExecContext(c, `CREATE TABLE IF NOT EXISTS [rooms] (
 		[room_id] TEXT NOT NULL, UNIQUE ([room_id])
