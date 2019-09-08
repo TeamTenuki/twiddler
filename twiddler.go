@@ -4,17 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -23,78 +17,29 @@ import (
 	"github.com/TeamTenuki/twiddler/db"
 )
 
-var cmdline struct {
-	config string
-}
-
-type Config struct {
-	TwitchAPI  string `json:"twitch-api-key"`
-	DiscordAPI string `json:"discord-api-key"`
-}
-
-func Main() {
-	flag.StringVar(&cmdline.config, "config", "", "Path to a configuration file containing API keys.")
-	flag.Parse()
-
-	if cmdline.config == "" {
-		configDir, err := config.Dir()
-		if err != nil {
-			log.Fatalf("ERROR: %s", err)
-		}
-
-		cmdline.config = filepath.Join(configDir, "config.json")
-	}
-
-	setupDB(db.NewContext(context.Background()))
-
-	configContent, err := ioutil.ReadFile(cmdline.config)
-	if err != nil {
-		log.Fatalf("Error reading config: %q", err)
-	}
-
-	config := Config{}
-	if err := json.Unmarshal(configContent, &config); err != nil {
-		log.Fatalf("Parse error: %q", err)
-	}
+func Run(c context.Context, config *config.Config) error {
+	setupDB(c)
 
 	dg, err := discordgo.New("Bot " + config.DiscordAPI)
 	if err != nil {
-		log.Fatalf("Discord creation failure: %q", err)
+		return fmt.Errorf("failed to create Discord client instance: %w", err)
 	}
 
 	dg.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		c := db.NewContext(context.Background())
-
 		messageHandler(c, s, m)
 	})
 
 	if err := dg.Open(); err != nil {
-		log.Fatalf("Failure opening WebSocket connection to Discord: %q", err)
+		return fmt.Errorf("failed to open a WebSocket connection: %w", err)
 	}
 
 	streamC := streamSupply(config.TwitchAPI)
 
-	go streamHandler(db.NewContext(context.Background()), dg, streamC)
+	go streamHandler(c, dg, streamC)
 
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	<-c.Done()
 
-	<-sc
-
-	close(streamC)
-
-	dg.Close()
-}
-
-func setupDB(c context.Context) {
-	db := db.FromContext(c)
-
-	db.MustExecContext(c, `CREATE TABLE IF NOT EXISTS [rooms] ([room_id] TEXT NOT NULL, UNIQUE ([room_id]))`)
-	db.MustExecContext(c, `CREATE TABLE IF NOT EXISTS [reports] (
-		[channel_id] TEXT NOT NULL,
-		[started_at] TEXT NOT NULL,
-		UNIQUE ([channel_id], [started_at])
-	)`)
+	return dg.Close()
 }
 
 func messageHandler(c context.Context, s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -134,10 +79,17 @@ type StreamContainer struct {
 
 var currentlyLive []Stream
 
-func streamHandler(c context.Context, s *discordgo.Session, streamC <-chan []Stream) {
+func streamHandler(c context.Context, s *discordgo.Session, streamC chan []Stream) {
 	db := db.FromContext(c)
 
+loop:
 	for streams := range streamC {
+		select {
+		default:
+		case <-c.Done():
+			break loop
+		}
+
 		reportableStreams := make([]Stream, 0)
 
 	outer:
@@ -198,6 +150,8 @@ LIMIT 1`,
 
 		currentlyLive = streams
 	}
+
+	close(streamC)
 }
 
 func streamSupply(twitchAPI string) chan []Stream {

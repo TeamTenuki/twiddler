@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"log"
 	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
@@ -13,13 +12,27 @@ import (
 
 var db *sqlx.DB
 
-func init() {
-	configDir, err := config.Dir()
-	if err != nil {
-		log.Fatalf("ERROR: %s", err)
+func Init(path string) (err error) {
+	dbFilepath := path
+
+	if path == "" {
+		configDir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+
+		dbFilepath = filepath.Join(configDir, "twiddler.db")
 	}
 
-	db = sqlx.MustOpen("sqlite3", filepath.Join(configDir, "twiddler.db"))
+	db, err = sqlx.Open("sqlite3", dbFilepath)
+
+	return err
+}
+
+func MustOpen(path string) {
+	if err := Init(path); err != nil {
+		panic(err)
+	}
 }
 
 type contextKey int
