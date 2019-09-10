@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// SetupDB creates necesseary tables.
+// SetupDB creates necessary tables.
 func SetupDB(c context.Context) {
 	db := FromContext(c)
 
