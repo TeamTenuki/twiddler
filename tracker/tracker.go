@@ -54,6 +54,10 @@ func (t *Tracker) Track(c context.Context) {
 	}
 }
 
+func (t *Tracker) Live() []stream.Stream {
+	return t.live
+}
+
 func (t *Tracker) store(c context.Context, s *stream.Stream) {
 	db := db.FromContext(c)
 

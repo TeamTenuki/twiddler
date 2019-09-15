@@ -41,9 +41,10 @@ func (m *Messenger) MessageStream(c context.Context, roomID string, s *stream.St
 
 func (m *Messenger) MessageStreamList(c context.Context, roomID string, s []stream.Stream) error {
 	fields := make([]*discordgo.MessageEmbedField, 0)
-	for _, stream := range make([]*stream.Stream, 0) {
+	for _, stream := range s {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  stream.User.Name,
+			Name: stream.User.Name,
+			// FIXME(destroycomputers): Replace this link with s.ChannelURL or something.
 			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.User.Name),
 		})
 	}
