@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/TeamTenuki/twiddler"
 	"github.com/TeamTenuki/twiddler/config"
@@ -22,6 +24,8 @@ func main() {
 	flag.StringVar(&cmdline.config, "config", "", "Path to a configuration file containing API keys.")
 	flag.StringVar(&cmdline.db, "db", "", "Path to a SQLite DB file to persist data.")
 	flag.Parse()
+
+	rand.Seed(time.Now().UnixNano())
 
 	if err := db.Init(cmdline.db); err != nil {
 		log.Fatalf("ERROR: failed to initialise DB: %s", err)
