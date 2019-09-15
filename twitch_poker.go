@@ -35,8 +35,6 @@ func (p *twitchPoker) Poke(c context.Context) error {
 			p.poke(c)
 		}
 	}
-
-	return nil
 }
 
 func (p *twitchPoker) poke(c context.Context) {

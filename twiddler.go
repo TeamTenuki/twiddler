@@ -38,9 +38,7 @@ func Run(c context.Context, config *config.Config) error {
 	p := newTwitchPoker(config.TwitchAPI, 2*time.Second)
 	t := tracker.NewTracker(p, r)
 
-	go t.Track(c)
-
-	<-c.Done()
+	t.Track(c)
 
 	return dg.Close()
 }
