@@ -248,7 +248,7 @@ func expectStreamReports(t *testing.T, ss []*stream.Stream, ids ...string) {
 }
 
 //
-// REPORTER
+// MESSENGER
 //
 
 type bagT struct {
