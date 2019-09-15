@@ -28,8 +28,7 @@ func (f *Fetcher) Fetch(c context.Context) ([]stream.Stream, error) {
 	req, err := http.NewRequestWithContext(
 		c,
 		"GET",
-		//"https://api.twitch.tv/helix/streams?game_id=65360&first=100",
-		"https://api.twitch.tv/helix/streams?game_id=1818&first=100",
+		"https://api.twitch.tv/helix/streams?game_id=65360&first=100",
 		nil)
 	if err != nil {
 		return nil, err
