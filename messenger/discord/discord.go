@@ -3,6 +3,8 @@ package discord
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -22,17 +24,37 @@ func NewMessenger(s *discordgo.Session) messenger.Messenger {
 }
 
 func (m *Messenger) MessageStream(c context.Context, roomID string, s *stream.Stream) error {
+	title := fmt.Sprintf("%s Went Live!", s.User.DisplayName)
+	if strings.ToLower(s.User.Name) != strings.ToLower(s.User.DisplayName) {
+		title = fmt.Sprintf("%s (%s) Went Live!",
+			strings.Replace(s.User.DisplayName, "_", "\\_", -1),
+			strings.Replace(s.User.Name, "_", "\\_", -1))
+	}
+
+	thumbnailURL := fmt.Sprintf("%s?cache_invalidation_token=%d", s.ThumbnailURL, rand.Int())
+
 	_, err := m.s.ChannelMessageSendEmbed(roomID, &discordgo.MessageEmbed{
-		Title: fmt.Sprintf("%s Went Live!", s.User.Name),
-		// FIXME(destroycomputers): Replace this link with s.ChannelURL or something.
-		Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", s.Title, s.User.Name),
+		Title:       title,
+		Description: fmt.Sprintf("[%s](%s)", s.Title, s.User.ChannelURL),
 		Image: &discordgo.MessageEmbedImage{
-			URL:    s.ThumbnailURL.String(),
+			URL:    thumbnailURL,
 			Width:  1280,
 			Height: 720,
 		},
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL:    s.User.PictureURL.String(),
+			Width:  300,
+			Height: 300,
+		},
+		Color: 0x00aa00,
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    "Twitch",
+			URL:     s.User.ChannelURL.String(),
+			IconURL: "https://assets.help.twitch.tv/Glitch_Purple_RGB.png",
+		},
+		Timestamp: s.StartedAt.Format(time.RFC3339),
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("Live since %s", s.StartedAt.Format(time.RFC3339)),
+			Text: "Live since",
 		},
 	})
 
@@ -43,9 +65,8 @@ func (m *Messenger) MessageStreamList(c context.Context, roomID string, s []stre
 	fields := make([]*discordgo.MessageEmbedField, 0)
 	for _, stream := range s {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: stream.User.Name,
-			// FIXME(destroycomputers): Replace this link with s.ChannelURL or something.
-			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.User.Name),
+			Name:  stream.User.Name,
+			Value: fmt.Sprintf("[%s](%s)", stream.Title, stream.User.ChannelURL),
 		})
 	}
 
