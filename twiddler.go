@@ -12,7 +12,11 @@ import (
 
 	"github.com/TeamTenuki/twiddler/config"
 	"github.com/TeamTenuki/twiddler/db"
+	"github.com/TeamTenuki/twiddler/messenger/discord"
+	"github.com/TeamTenuki/twiddler/stream"
+	"github.com/TeamTenuki/twiddler/stream/twitch"
 	"github.com/TeamTenuki/twiddler/tracker"
+	"github.com/TeamTenuki/twiddler/watcher"
 )
 
 // Run is the main entry point that starts the bot interaction with the world.
@@ -34,9 +38,10 @@ func Run(c context.Context, config *config.Config) error {
 		return fmt.Errorf("failed to open a WebSocket connection: %w", err)
 	}
 
-	r := newDiscordReporter(dg)
-	p := newTwitchPoker(config.TwitchAPI, 2*time.Second)
-	t := tracker.NewTracker(p, r)
+	m := discord.NewMessenger(dg)
+	f := twitch.NewFetcher(config.TwitchAPI)
+	w := watcher.Periodic(f, 2*time.Second)
+	t := tracker.NewTracker(w, m)
 
 	t.Track(c)
 
@@ -61,43 +66,6 @@ func mentionsBot(s *discordgo.Session, ms []*discordgo.User) bool {
 	}
 
 	return false
-}
-
-type discordReporter struct {
-	s *discordgo.Session
-	r *strings.Replacer
-}
-
-func newDiscordReporter(s *discordgo.Session) tracker.Reporter {
-	r := strings.NewReplacer("{width}", "1280", "{height}", "720")
-
-	return &discordReporter{
-		s: s,
-		r: r,
-	}
-}
-
-func (r *discordReporter) Report(c context.Context, roomID string, s *tracker.Stream) error {
-	_, err := r.s.ChannelMessageSendEmbed(roomID, &discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("%s Went Live!", s.UserName),
-		Description: fmt.Sprintf("[%s](https://twitch.tv/%s)", s.Title, s.UserName),
-		Image: &discordgo.MessageEmbedImage{
-			URL:    r.r.Replace(s.Thumbnail),
-			Width:  1280,
-			Height: 720,
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("Live since %s", s.StartedAt),
-		},
-	})
-
-	return err
-}
-
-func (r *discordReporter) ReportMessage(c context.Context, roomID string, content string) error {
-	_, err := r.s.ChannelMessageSend(roomID, content)
-
-	return err
 }
 
 // FIXME(destroycomputers): Factor out commands into separate file or package.
@@ -133,10 +101,10 @@ func listCommand(c context.Context, s *discordgo.Session, m *discordgo.MessageCr
 	}
 
 	fields := make([]*discordgo.MessageEmbedField, 0)
-	for _, stream := range make([]*tracker.Stream, 0) {
+	for _, stream := range make([]*stream.Stream, 0) {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  stream.UserName,
-			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.UserName),
+			Name:  stream.User.Name,
+			Value: fmt.Sprintf("[%s](https://twitch.tv/%s)", stream.Title, stream.User.Name),
 		})
 	}
 

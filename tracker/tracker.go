@@ -7,28 +7,30 @@ import (
 	"time"
 
 	"github.com/TeamTenuki/twiddler/db"
+	"github.com/TeamTenuki/twiddler/messenger"
+	"github.com/TeamTenuki/twiddler/stream"
+	"github.com/TeamTenuki/twiddler/watcher"
 )
 
 type Tracker struct {
-	p    Poker
-	r    Reporter
-	live []Stream
+	w    watcher.Watcher
+	m    messenger.Messenger
+	live []stream.Stream
+	err  error
 }
 
-func NewTracker(p Poker, r Reporter) *Tracker {
+func NewTracker(w watcher.Watcher, m messenger.Messenger) *Tracker {
 	return &Tracker{
-		p:    p,
-		r:    r,
-		live: make([]Stream, 0),
+		w:    w,
+		m:    m,
+		live: make([]stream.Stream, 0),
 	}
 }
 
 func (t *Tracker) Track(c context.Context) {
-	go t.p.Poke(c)
+	go t.w.Watch(c)
 
-	db := db.FromContext(c)
-
-	for streams := range t.p.Source() {
+	for streams := range t.w.Source() {
 		reportable := t.excludeKnown(streams)
 		reportable = t.excludeReported(c, reportable)
 
@@ -39,34 +41,27 @@ func (t *Tracker) Track(c context.Context) {
 		}
 
 		for _, s := range reportable {
-			c, cancel := context.WithTimeout(c, 30*time.Second)
-			defer cancel()
+			t.store(c, &s)
+			t.report(c, rooms, &s)
 
-			tx := db.MustBeginTx(c, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
-
-			_, err := tx.Exec(`INSERT INTO [reports] ([user_id], [stream_id], [started_at])
-			VALUES (?, ?, ?)`,
-				s.UserID,
-				s.ID,
-				s.StartedAt)
-
-			if err != nil {
-				log.Printf("Failed to insert report: %s", err)
-				tx.Rollback()
-				continue
+			if t.err != nil {
+				log.Printf("Failed to report the stream: %s", t.err)
+				t.err = nil
 			}
-
-			if err := t.report(c, rooms, s); err != nil {
-				log.Printf("Failed to report stream: %s", err)
-				tx.Rollback()
-				continue
-			}
-
-			tx.Commit()
 		}
 
 		t.live = streams
 	}
+}
+
+func (t *Tracker) store(c context.Context, s *stream.Stream) {
+	db := db.FromContext(c)
+
+	_, t.err = db.ExecContext(c, `INSERT INTO [reports] ([user_id], [stream_id], [started_at])
+VALUES (?, ?, ?)`,
+		s.User.ID,
+		s.ID,
+		s.StartedAt.Format(time.RFC3339))
 }
 
 func (t *Tracker) rooms(c context.Context) (rooms []string, err error) {
@@ -77,18 +72,22 @@ func (t *Tracker) rooms(c context.Context) (rooms []string, err error) {
 	return rooms, err
 }
 
-func (t *Tracker) report(c context.Context, rs []string, s Stream) error {
-	for _, r := range rs {
-		if err := t.r.Report(c, r, &s); err != nil {
-			return err
-		}
+func (t *Tracker) report(c context.Context, rs []string, s *stream.Stream) {
+	if t.err != nil {
+		return
 	}
 
-	return nil
+	for _, r := range rs {
+		if err := t.m.MessageStream(c, r, s); err != nil {
+			t.err = err
+
+			break
+		}
+	}
 }
 
-func (t *Tracker) excludeKnown(ss []Stream) []Stream {
-	unknown := make([]Stream, 0)
+func (t *Tracker) excludeKnown(ss []stream.Stream) []stream.Stream {
+	unknown := make([]stream.Stream, 0)
 
 outer:
 	for _, s := range ss {
@@ -104,15 +103,15 @@ outer:
 	return unknown
 }
 
-func (t *Tracker) excludeReported(c context.Context, ss []Stream) []Stream {
-	reportable := make([]Stream, 0)
+func (t *Tracker) excludeReported(c context.Context, ss []stream.Stream) []stream.Stream {
+	reportable := make([]stream.Stream, 0)
 
 	for _, s := range ss {
 		if t.wasReported(c, s) {
 			continue
 		}
 
-		dt, err := t.lastReportTimeForUser(c, s)
+		dt, err := t.lastReportTimeForUser(c, &s)
 		if err != nil {
 			log.Printf("Failed to retrieve last report: %s", err)
 		}
@@ -125,7 +124,7 @@ func (t *Tracker) excludeReported(c context.Context, ss []Stream) []Stream {
 	return reportable
 }
 
-func (t *Tracker) wasReported(c context.Context, s Stream) bool {
+func (t *Tracker) wasReported(c context.Context, s stream.Stream) bool {
 	db := db.FromContext(c)
 
 	return sql.ErrNoRows != db.GetContext(c, new(string), `SELECT [started_at]
@@ -135,7 +134,7 @@ func (t *Tracker) wasReported(c context.Context, s Stream) bool {
 		s.ID)
 }
 
-func (t *Tracker) lastReportTimeForUser(c context.Context, s Stream) (time.Time, error) {
+func (t *Tracker) lastReportTimeForUser(c context.Context, s *stream.Stream) (time.Time, error) {
 	db := db.FromContext(c)
 
 	// Default date/time that will be used if there are no rows for given channel.
@@ -146,7 +145,7 @@ func (t *Tracker) lastReportTimeForUser(c context.Context, s Stream) (time.Time,
 	WHERE [user_id] = ?
 	ORDER BY datetime([started_at]) DESC
 	LIMIT 1`,
-		s.UserID)
+		s.User.ID)
 
 	if err != nil && err != sql.ErrNoRows {
 		return time.Time{}, err

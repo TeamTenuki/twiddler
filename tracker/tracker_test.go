@@ -7,160 +7,175 @@ import (
 	"time"
 
 	"github.com/TeamTenuki/twiddler/db"
+	"github.com/TeamTenuki/twiddler/messenger"
+	"github.com/TeamTenuki/twiddler/stream"
 	"github.com/TeamTenuki/twiddler/tracker"
+	"github.com/TeamTenuki/twiddler/watcher"
 )
 
 func TestStreamIsReported(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
 func TestSameStreamTwiceInOneBatchReportedOnce(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
 func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.poke([]tracker.Stream{ /* empty */ })
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{ /* empty */ })
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
 func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-10 * time.Minute).Format(time.RFC3339),
+			StartedAt: baselineTime.Add(-10 * time.Minute),
 		},
 	})
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
 func TestStreamRestartsMoreThanHourGapBothReported(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute).Format(time.RFC3339),
+			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute),
 		},
 	})
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1", "stream2")
 }
 
 func TestSameStreamOneHourLaterNotReported(t *testing.T) {
-	p, r, wg := setupTracker()
+	tr := setupTracker()
 	baselineTime := time.Now().UTC()
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute).Format(time.RFC3339),
+			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute),
 		},
 	})
 
-	p.poke([]tracker.Stream{})
+	tr.poke([]stream.Stream{})
 
-	p.poke([]tracker.Stream{
+	tr.poke([]stream.Stream{
 		{
-			UserID:    "user1",
+			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Format(time.RFC3339),
+			StartedAt: baselineTime,
 		},
 	})
 
-	p.Close()
-	wg.Wait()
+	tr.close()
+	tr.wait()
 
-	bag := r.rooms["room1"]
+	logReports(t, tr.c)
+
+	bag := tr.room("room1")
 	expectStreamReports(t, bag.streams, "stream1")
 }
 
@@ -168,25 +183,54 @@ func TestSameStreamOneHourLaterNotReported(t *testing.T) {
 // HELPERS
 //
 
-func setupTracker() (*pokerT, *reporterT, *sync.WaitGroup) {
-	var wg sync.WaitGroup
+type trackerT struct {
+	c  context.Context
+	w  *watcherT
+	m  *messengerT
+	wg *sync.WaitGroup
+}
 
-	wg.Add(1) // We expect single report.
+func setupTracker() *trackerT {
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 
-	p := newPoker()
-	r := newReporter()
+	w := newWatcher()
+	m := newMessenger()
 	c := setupDB()
 
-	tracker := tracker.NewTracker(p, r)
+	tracker := tracker.NewTracker(w, m)
 	go func() {
 		tracker.Track(c)
 		wg.Done()
 	}()
 
-	return p, r, &wg
+	return &trackerT{
+		c:  c,
+		w:  w,
+		m:  m,
+		wg: wg,
+	}
 }
 
-func expectStreamReports(t *testing.T, ss []*tracker.Stream, ids ...string) {
+func (t *trackerT) poke(ss []stream.Stream) {
+	t.w.poke(ss)
+}
+
+func (t *trackerT) close() {
+	t.w.close()
+}
+
+func (t *trackerT) wait() {
+	t.wg.Wait()
+}
+
+func (t *trackerT) room(roomID string) bagT {
+	return t.m.rooms[roomID]
+}
+
+func expectStreamReports(t *testing.T, ss []*stream.Stream, ids ...string) {
+	t.Helper()
+
 	if len(ids) != len(ss) {
 		t.Errorf("Expected %d reports got %d", len(ids), len(ss))
 	}
@@ -204,25 +248,27 @@ func expectStreamReports(t *testing.T, ss []*tracker.Stream, ids ...string) {
 }
 
 //
-// REPORTER
+// MESSENGER
 //
 
 type bagT struct {
-	streams  []*tracker.Stream
+	streams  []*stream.Stream
 	messages []string
 }
 
-type reporterT struct {
+var _ messenger.Messenger = &messengerT{}
+
+type messengerT struct {
 	rooms map[string]bagT
 }
 
-func newReporter() *reporterT {
-	return &reporterT{
+func newMessenger() *messengerT {
+	return &messengerT{
 		rooms: make(map[string]bagT),
 	}
 }
 
-func (r *reporterT) Report(c context.Context, roomID string, s *tracker.Stream) error {
+func (r *messengerT) MessageStream(c context.Context, roomID string, s *stream.Stream) error {
 	bag := r.rooms[roomID]
 	bag.streams = append(bag.streams, s)
 
@@ -231,7 +277,11 @@ func (r *reporterT) Report(c context.Context, roomID string, s *tracker.Stream) 
 	return nil
 }
 
-func (r *reporterT) ReportMessage(c context.Context, roomID string, content string) error {
+func (r *messengerT) MessageStreamList(c context.Context, roomID string, ss []stream.Stream) error {
+	return nil
+}
+
+func (r *messengerT) MessageText(c context.Context, roomID string, content string) error {
 	bag := r.rooms[roomID]
 	bag.messages = append(bag.messages, content)
 
@@ -241,39 +291,41 @@ func (r *reporterT) ReportMessage(c context.Context, roomID string, content stri
 }
 
 //
-// POKER
+// WATCHER
 //
 
-type pokerT struct {
-	c chan []tracker.Stream
+var _ watcher.Watcher = &watcherT{}
+
+type watcherT struct {
+	c chan []stream.Stream
 }
 
-func newPoker() *pokerT {
-	return &pokerT{
-		c: make(chan []tracker.Stream, 1),
+func newWatcher() *watcherT {
+	return &watcherT{
+		c: make(chan []stream.Stream, 1),
 	}
 }
 
-func (p *pokerT) poke(ss []tracker.Stream) {
-	p.c <- ss
-}
-
-func (p *pokerT) Poke(c context.Context) error {
+func (p *watcherT) Watch(c context.Context) error {
 	return nil
 }
 
-func (p *pokerT) Close() error {
+func (p *watcherT) Source() <-chan []stream.Stream {
+	return p.c
+}
+
+func (p *watcherT) poke(ss []stream.Stream) {
+	p.c <- ss
+}
+
+func (p *watcherT) close() error {
 	close(p.c)
 
 	return nil
 }
 
-func (p *pokerT) Source() <-chan []tracker.Stream {
-	return p.c
-}
-
 //
-// SETUP DB
+// DB
 //
 func setupDB() context.Context {
 	db.MustInit(":memory:")
@@ -285,4 +337,26 @@ func setupDB() context.Context {
 	db.MustExec(`INSERT INTO [rooms] ([room_id]) VALUES ('room1')`)
 
 	return c
+}
+
+type report struct {
+	StreamID  string `db:"stream_id"`
+	UserID    string `db:"user_id"`
+	StartedAt string `db:"started_at"`
+}
+
+func logReports(t *testing.T, c context.Context) {
+	t.Helper()
+
+	db := db.FromContext(c)
+
+	var reports []report
+	err := db.Select(&reports, `SELECT [stream_id], [user_id], [started_at] FROM [reports]`)
+	if err != nil {
+		t.Errorf("Failed to retrieve reports: %s", err)
+	}
+
+	for i := range reports {
+		t.Logf("%#v", reports[i])
+	}
 }
