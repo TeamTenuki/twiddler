@@ -19,7 +19,7 @@ type Stream struct {
 	Title string
 
 	// ThumbnailURL of this stream.
-	ThumbnailURL url.URL
+	ThumbnailURL *url.URL
 
 	// StartedAt is a date/time of this stream going live.
 	StartedAt time.Time
@@ -35,13 +35,13 @@ type User struct {
 	Name string
 
 	// ChannelURL is an URL that points to streamer's channel page on a given service.
-	ChannelURL url.URL
+	ChannelURL *url.URL
 
 	// ProfileURL is an URL that points to streamer's profile page on a given service.
-	ProfileURL url.URL
+	ProfileURL *url.URL
 
 	// PictureURL is an URL that points to streamer's profile picture on a given service.
-	PictureURL url.URL
+	PictureURL *url.URL
 }
 
 // Fetcher knows how to interact with streaming service to obtain stream infos.

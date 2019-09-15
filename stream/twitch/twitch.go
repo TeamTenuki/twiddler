@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/TeamTenuki/twiddler/stream"
@@ -12,11 +14,13 @@ import (
 
 type Fetcher struct {
 	apiKey string
+	r      *strings.Replacer
 }
 
 func NewFetcher(apiKey string) *Fetcher {
 	return &Fetcher{
 		apiKey: apiKey,
+		r:      strings.NewReplacer("{width}", "1280", "{height}", "720"),
 	}
 }
 
@@ -44,7 +48,7 @@ func (f *Fetcher) Fetch(c context.Context) ([]stream.Stream, error) {
 			return nil, err
 		}
 
-		return constructStreamList(c, &streamContainer)
+		return f.constructStreamList(c, &streamContainer)
 	}
 
 	return nil, fmt.Errorf("failed to fetch data, server replied with status %s", resp.Status)
@@ -52,11 +56,11 @@ func (f *Fetcher) Fetch(c context.Context) ([]stream.Stream, error) {
 
 var _ stream.Fetcher = &Fetcher{}
 
-func constructStreamList(c context.Context, sc *streamContainerT) ([]stream.Stream, error) {
+func (f *Fetcher) constructStreamList(c context.Context, sc *streamContainerT) ([]stream.Stream, error) {
 	ss := make([]stream.Stream, len(sc.Data))
 
 	for i := range sc.Data {
-		s, err := constructStream(c, &sc.Data[i])
+		s, err := f.constructStream(c, &sc.Data[i])
 		if err != nil {
 			return nil, err
 		}
@@ -66,8 +70,13 @@ func constructStreamList(c context.Context, sc *streamContainerT) ([]stream.Stre
 	return ss, nil
 }
 
-func constructStream(c context.Context, s *streamT) (stream.Stream, error) {
+func (f *Fetcher) constructStream(c context.Context, s *streamT) (stream.Stream, error) {
 	startedAt, err := time.Parse(time.RFC3339, s.StartedAt)
+	if err != nil {
+		return stream.Stream{}, err
+	}
+
+	thumbnailURL, err := url.Parse(f.r.Replace(s.Thumbnail))
 	if err != nil {
 		return stream.Stream{}, err
 	}
@@ -78,8 +87,9 @@ func constructStream(c context.Context, s *streamT) (stream.Stream, error) {
 			ID:   s.UserID,
 			Name: s.UserName,
 		},
-		Title:     s.Title,
-		StartedAt: startedAt.In(time.UTC),
+		Title:        s.Title,
+		StartedAt:    startedAt.In(time.UTC),
+		ThumbnailURL: thumbnailURL,
 	}
 
 	return cs, nil

@@ -37,17 +37,16 @@ type periodicT struct {
 
 func (p *periodicT) Watch(c context.Context) error {
 	ticker := time.NewTicker(p.d)
-	for range ticker.C {
+	for {
 		select {
-		default:
+		case <-ticker.C:
 			p.check(c)
 		case <-c.Done():
 			ticker.Stop()
-
+			close(p.c)
 			return nil
 		}
 	}
-	return nil
 }
 
 func (p *periodicT) Source() <-chan []stream.Stream {
