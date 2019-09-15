@@ -192,7 +192,7 @@ type trackerT struct {
 
 func setupTracker() *trackerT {
 	wg := &sync.WaitGroup{}
-	wg.Add(1) // We expect single report.
+	wg.Add(1)
 
 	w := newWatcher()
 	m := newMessenger()
