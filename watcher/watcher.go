@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -56,7 +57,7 @@ func (p *periodicT) Source() <-chan []stream.Stream {
 func (p *periodicT) check(c context.Context) {
 	streamList, err := p.fetch(c)
 	if err != nil {
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			log.Printf("Failed to fetch stream list: %s", err)
 		}
 

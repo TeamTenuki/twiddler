@@ -34,6 +34,9 @@ type User struct {
 	// Name is a user's name on a given service.
 	Name string
 
+	// DisplayName is a user's display name on a given service.
+	DisplayName string
+
 	// ChannelURL is an URL that points to streamer's channel page on a given service.
 	ChannelURL *url.URL
 
@@ -42,6 +45,9 @@ type User struct {
 
 	// PictureURL is an URL that points to streamer's profile picture on a given service.
 	PictureURL *url.URL
+
+	// OfflineImageURL is an URL that points to streamer's offline image.
+	OfflineImageURL *url.URL
 }
 
 // Fetcher knows how to interact with streaming service to obtain stream infos.
