@@ -90,6 +90,48 @@ func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 	expectStreamReports(t, store.Streams, "stream1")
 }
 
+// FIXME(destroycomputers): This test is useless because of absent time mocks.
+func TestStreamRestartIsNotReportedAfterEnd(t *testing.T) {
+	tr := testutil.NewTracker()
+	setupDB(tr.C)
+	baselineTime := time.Now().UTC()
+
+	tr.Send([]stream.Stream{
+		{
+			User:      stream.User{ID: "user1"},
+			ID:        "stream1",
+			StartedAt: baselineTime.Add(-30 * time.Minute),
+		},
+	})
+
+	tr.Send([]stream.Stream{
+		{
+			User:      stream.User{ID: "user1"},
+			ID:        "stream2",
+			StartedAt: baselineTime,
+		},
+	})
+
+	// Stream ends, due to eventual consistency we may get varied
+	// reports on whether it's online or not.
+	tr.Send([]stream.Stream{})
+	tr.Send([]stream.Stream{
+		{
+			User:      stream.User{ID: "user1"},
+			ID:        "stream2",
+			StartedAt: baselineTime,
+		},
+	})
+
+	tr.Close()
+	tr.Wait()
+
+	testutil.LogReports(t, tr.C)
+
+	store := tr.Room("room1")
+	expectStreamReports(t, store.Streams, "stream1")
+}
+
 func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
