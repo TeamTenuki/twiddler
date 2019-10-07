@@ -122,6 +122,8 @@ func (t *Tracker) excludeReported(c context.Context, ss []stream.Stream) []strea
 
 		if time.Since(dt) > time.Hour {
 			reportable = append(reportable, s)
+		} else {
+			t.store(c, &s)
 		}
 	}
 
