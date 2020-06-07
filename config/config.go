@@ -14,8 +14,9 @@ var (
 )
 
 type Config struct {
-	TwitchAPI  string `json:"twitch-api-key"`
-	DiscordAPI string `json:"discord-api-key"`
+	TwitchClientID string `json:"twitch-client-id"`
+	TwitchSecret   string `json:"twitch-secret"`
+	DiscordAPI     string `json:"discord-api-key"`
 }
 
 // Dir returns default config directory. Currently it is a simply "$HOME/.config/twiddler".

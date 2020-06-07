@@ -28,7 +28,7 @@ func Run(c context.Context, config *config.Config) error {
 	}
 
 	m := discord.NewMessenger(dg)
-	f := twitch.NewFetcher(config.TwitchAPI)
+	f := twitch.NewFetcher(c, config.TwitchClientID, config.TwitchSecret)
 	w := watcher.Periodic(f, 8*time.Second)
 	t := tracker.NewTracker(w, m)
 	h := commands.NewHandler(t)

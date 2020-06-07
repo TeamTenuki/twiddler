@@ -9,22 +9,34 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/clientcredentials"
+	"golang.org/x/oauth2/twitch"
+
 	"github.com/TeamTenuki/twiddler/stream"
 )
 
 var _ stream.Fetcher = &Fetcher{}
 
 type Fetcher struct {
-	apiKey    string
-	r         *strings.Replacer
-	userCache map[string]stream.User
+	oauth2Config clientcredentials.Config
+	tokenSource  oauth2.TokenSource
+	r            *strings.Replacer
+	userCache    map[string]stream.User
 }
 
-func NewFetcher(apiKey string) *Fetcher {
+func NewFetcher(c context.Context, clientID string, clientSecret string) *Fetcher {
+	oauth2Config := clientcredentials.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenURL:     twitch.Endpoint.TokenURL,
+	}
+
 	return &Fetcher{
-		apiKey:    apiKey,
-		r:         strings.NewReplacer("{width}", "1280", "{height}", "720"),
-		userCache: make(map[string]stream.User),
+		oauth2Config: oauth2Config,
+		tokenSource:  oauth2Config.TokenSource(c),
+		r:            strings.NewReplacer("{width}", "1280", "{height}", "720"),
+		userCache:    make(map[string]stream.User),
 	}
 }
 
@@ -65,6 +77,9 @@ func (f *Fetcher) constructStream(c context.Context, s *streamT) (stream.Stream,
 	}
 
 	user, err := f.userInfo(c, s.UserID)
+	if err != nil {
+		return stream.Stream{}, err
+	}
 
 	cs := stream.Stream{
 		ID:           s.ID,
@@ -156,7 +171,13 @@ func (f *Fetcher) newRequest(c context.Context, u string) (*http.Request, error)
 		return nil, err
 	}
 
-	req.Header.Add("Client-ID", f.apiKey)
+	token, err := f.tokenSource.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Client-ID", f.oauth2Config.ClientID)
+	req.Header.Add("Authorization", "Bearer "+token.AccessToken)
 
 	return req, nil
 }
