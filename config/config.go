@@ -27,12 +27,12 @@ func Dir() (string, error) {
 	}
 
 	configDir := filepath.Join(homedir, ".config", "twiddler")
-	fi, err := os.Lstat(configDir)
+	fi, err := os.Stat(configDir)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(configDir, 0777); err != nil {
 			return "", fmt.Errorf("can't create config dir: %w", err)
 		}
-		fi, err = os.Lstat(configDir)
+		fi, err = os.Stat(configDir)
 	}
 
 	if err != nil {
