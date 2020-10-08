@@ -151,11 +151,7 @@ func (f *Fetcher) get(c context.Context, u string, d interface{}) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 200 {
-		if err := json.NewDecoder(resp.Body).Decode(d); err != nil {
-			return err
-		}
-
-		return nil
+		return json.NewDecoder(resp.Body).Decode(d)
 	}
 
 	return fmt.Errorf("failed to fetch data, server replied with status %s", resp.Status)
