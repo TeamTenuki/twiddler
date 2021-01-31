@@ -19,4 +19,14 @@ type Messenger interface {
 
 	// MessageText knows how to send an arbitrary text message.
 	MessageText(c context.Context, roomID string, t string) error
+
+	AddCommandHandler(c context.Context, h Handler)
+
+	Run() error
+
+	Close() error
+}
+
+type Handler interface {
+	Handle(c context.Context, sourceID, message string, m Messenger) error
 }

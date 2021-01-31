@@ -2,10 +2,7 @@ package twiddler
 
 import (
 	"context"
-	"fmt"
 	"time"
-
-	"github.com/bwmarrin/discordgo"
 
 	"github.com/TeamTenuki/twiddler/commands"
 	"github.com/TeamTenuki/twiddler/config"
@@ -22,42 +19,21 @@ import (
 func Run(c context.Context, config *config.Config) error {
 	db.SetupDB(c)
 
-	dg, err := discordgo.New("Bot " + config.DiscordAPI)
+	m, err := discord.NewMessenger(config.DiscordAPI)
 	if err != nil {
-		return fmt.Errorf("failed to create Discord client instance: %w", err)
+		return err
 	}
 
-	m := discord.NewMessenger(dg)
 	f := twitch.NewFetcher(c, config.TwitchClientID, config.TwitchSecret)
 	w := watcher.Periodic(f, 8*time.Second)
 	t := tracker.NewTracker(w, m)
-	h := commands.NewHandler(t)
 
-	dg.AddHandler(func(s *discordgo.Session, mc *discordgo.MessageCreate) {
-		if mc.Author.ID == s.State.User.ID {
-			return
-		}
-
-		if mentionsBot(s, mc.Mentions) {
-			h.Handle(c, mc.ChannelID, mc.Content, m)
-		}
-	})
-
-	if err := dg.Open(); err != nil {
-		return fmt.Errorf("failed to open a WebSocket connection: %w", err)
+	m.AddCommandHandler(c, commands.NewHandler(t))
+	if err := m.Run(); err != nil {
+		return err
 	}
 
 	t.Track(c)
 
-	return dg.Close()
-}
-
-func mentionsBot(s *discordgo.Session, ms []*discordgo.User) bool {
-	for _, u := range ms {
-		if u.ID == s.State.User.ID {
-			return true
-		}
-	}
-
-	return false
+	return m.Close()
 }

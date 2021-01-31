@@ -17,10 +17,25 @@ type Messenger struct {
 	s *discordgo.Session
 }
 
-func NewMessenger(s *discordgo.Session) messenger.Messenger {
-	return &Messenger{
+func NewMessenger(apiKey string) (messenger.Messenger, error) {
+	s, err := discordgo.New("Bot " + apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Discord client instance: %w", err)
+	}
+
+	m := &Messenger{
 		s: s,
 	}
+
+	return m, nil
+}
+
+func (m *Messenger) Run() error {
+	if err := m.s.Open(); err != nil {
+		return fmt.Errorf("failed to open a WebSocket connection to discord: %w", err)
+	}
+
+	return nil
 }
 
 func (m *Messenger) MessageStream(c context.Context, roomID string, s *stream.Stream) error {
@@ -82,4 +97,30 @@ func (m *Messenger) MessageText(c context.Context, roomID, text string) error {
 	_, err := m.s.ChannelMessageSend(roomID, text)
 
 	return err
+}
+
+func (m *Messenger) AddCommandHandler(c context.Context, h messenger.Handler) {
+	m.s.AddHandler(func(s *discordgo.Session, mc *discordgo.MessageCreate) {
+		if mc.Author.ID == s.State.User.ID {
+			return
+		}
+
+		if mentionsBot(s, mc.Mentions) {
+			h.Handle(c, mc.ChannelID, mc.Content, m)
+		}
+	})
+}
+
+func (m *Messenger) Close() error {
+	return m.s.Close()
+}
+
+func mentionsBot(s *discordgo.Session, ms []*discordgo.User) bool {
+	for _, u := range ms {
+		if u.ID == s.State.User.ID {
+			return true
+		}
+	}
+
+	return false
 }

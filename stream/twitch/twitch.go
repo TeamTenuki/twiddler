@@ -13,6 +13,7 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 	"golang.org/x/oauth2/twitch"
 
+	"github.com/TeamTenuki/twiddler/clock"
 	"github.com/TeamTenuki/twiddler/stream"
 )
 
@@ -22,7 +23,7 @@ type Fetcher struct {
 	oauth2Config clientcredentials.Config
 	tokenSource  oauth2.TokenSource
 	r            *strings.Replacer
-	userCache    map[string]stream.User
+	userCache    map[string]entryT
 }
 
 func NewFetcher(c context.Context, clientID string, clientSecret string) *Fetcher {
@@ -36,7 +37,7 @@ func NewFetcher(c context.Context, clientID string, clientSecret string) *Fetche
 		oauth2Config: oauth2Config,
 		tokenSource:  oauth2Config.TokenSource(c),
 		r:            strings.NewReplacer("{width}", "1280", "{height}", "720"),
-		userCache:    make(map[string]stream.User),
+		userCache:    make(map[string]entryT),
 	}
 }
 
@@ -93,8 +94,8 @@ func (f *Fetcher) constructStream(c context.Context, s *streamT) (stream.Stream,
 }
 
 func (f *Fetcher) userInfo(c context.Context, userID string) (stream.User, error) {
-	if u, exists := f.userCache[userID]; exists {
-		return u, nil
+	if entry, exists := f.userCache[userID]; exists && !entry.expired() {
+		return entry.user, nil
 	}
 
 	var userContainer userContainerT
@@ -133,7 +134,7 @@ func (f *Fetcher) userInfo(c context.Context, userID string) (stream.User, error
 		OfflineImageURL: offlineImageUrl,
 	}
 
-	f.userCache[userID] = u
+	f.userCache[userID] = newEntry(u)
 
 	return u, nil
 }
@@ -176,6 +177,19 @@ func (f *Fetcher) newRequest(c context.Context, u string) (*http.Request, error)
 	req.Header.Add("Authorization", "Bearer "+token.AccessToken)
 
 	return req, nil
+}
+
+type entryT struct {
+	user      stream.User
+	expiresAt time.Time
+}
+
+func newEntry(u stream.User) entryT {
+	return entryT{user: u, expiresAt: clock.NowUTC().Add(48 * time.Hour)}
+}
+
+func (e *entryT) expired() bool {
+	return e.expiresAt.After(clock.NowUTC())
 }
 
 type userContainerT struct {

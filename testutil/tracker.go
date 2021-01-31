@@ -38,15 +38,16 @@ func NewTracker() *Tracker {
 	}
 }
 
+func (t *Tracker) AwaitReport() {
+	t.m.AwaitReport()
+}
+
 func (t *Tracker) Send(ss []stream.Stream) {
 	t.w.Send(ss)
 }
 
-func (t *Tracker) Close() {
+func (t *Tracker) CloseAndWait() {
 	t.w.Close()
-}
-
-func (t *Tracker) Wait() {
 	t.wg.Wait()
 }
 
