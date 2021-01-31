@@ -16,14 +16,20 @@ import (
 )
 
 var cmdline struct {
-	config string
-	db     string
+	config  string
+	db      string
+	logTime bool
 }
 
 func main() {
 	flag.StringVar(&cmdline.config, "config", "", "Path to a configuration file containing API keys.")
 	flag.StringVar(&cmdline.db, "db", "", "Path to a SQLite DB file to persist data.")
+	flag.BoolVar(&cmdline.logTime, "logTime", true, "Prepend date/time in the logger output.")
 	flag.Parse()
+
+	if !cmdline.logTime {
+		log.SetFlags(0)
+	}
 
 	rand.Seed(time.Now().UnixNano())
 

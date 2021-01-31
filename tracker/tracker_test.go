@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TeamTenuki/twiddler/clock"
 	"github.com/TeamTenuki/twiddler/db"
 	"github.com/TeamTenuki/twiddler/stream"
 	"github.com/TeamTenuki/twiddler/testutil"
@@ -13,7 +14,7 @@ import (
 func TestStreamIsReported(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+	baselineTime := clock.NowUTC()
 
 	tr.Send([]stream.Stream{
 		{
@@ -23,8 +24,7 @@ func TestStreamIsReported(t *testing.T) {
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -35,7 +35,7 @@ func TestStreamIsReported(t *testing.T) {
 func TestSameStreamTwiceInOneBatchReportedOnce(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+	baselineTime := clock.NowUTC()
 
 	tr.Send([]stream.Stream{
 		{
@@ -50,8 +50,7 @@ func TestSameStreamTwiceInOneBatchReportedOnce(t *testing.T) {
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -62,7 +61,7 @@ func TestSameStreamTwiceInOneBatchReportedOnce(t *testing.T) {
 func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+	baselineTime := clock.NowUTC()
 
 	tr.Send([]stream.Stream{
 		{
@@ -81,8 +80,7 @@ func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -90,25 +88,28 @@ func TestInterleavedStreamReportIsReportedOnlyOnce(t *testing.T) {
 	expectStreamReports(t, store.Streams, "stream1")
 }
 
-// FIXME(destroycomputers): This test is useless because of absent time mocks.
 func TestStreamRestartIsNotReportedAfterEnd(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+
+	fixedClock := clock.OverrideByFixed(time.Now())
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-30 * time.Minute),
+			StartedAt: clock.NowUTC(),
 		},
 	})
+
+	tr.AwaitReport()
+	fixedClock.Add(30 * time.Minute)
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime,
+			StartedAt: clock.NowUTC(),
 		},
 	})
 
@@ -119,12 +120,11 @@ func TestStreamRestartIsNotReportedAfterEnd(t *testing.T) {
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime,
+			StartedAt: clock.NowUTC(),
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -132,29 +132,31 @@ func TestStreamRestartIsNotReportedAfterEnd(t *testing.T) {
 	expectStreamReports(t, store.Streams, "stream1")
 }
 
-func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
+func TestStreamRestartObservedWithinOneHourSingleReport(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+	fixedClock := clock.OverrideByFixed(time.Now())
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-10 * time.Minute),
+			StartedAt: clock.NowUTC(),
 		},
 	})
+
+	tr.AwaitReport()
+	fixedClock.Add(30 * time.Minute)
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime,
+			StartedAt: clock.NowUTC(),
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -162,29 +164,32 @@ func TestStreamRestartsWithinOneHourSingleReport(t *testing.T) {
 	expectStreamReports(t, store.Streams, "stream1")
 }
 
-func TestStreamRestartsMoreThanHourGapBothReported(t *testing.T) {
+func TestStreamWasObservedWithMoreThanHourGapBothReported(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+
+	fixedClock := clock.OverrideByFixed(time.Now())
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute),
+			StartedAt: clock.NowUTC(),
 		},
 	})
+
+	tr.AwaitReport()
+	fixedClock.Add(time.Hour + time.Minute)
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream2",
-			StartedAt: baselineTime,
+			StartedAt: clock.NowUTC(),
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
 
@@ -195,30 +200,68 @@ func TestStreamRestartsMoreThanHourGapBothReported(t *testing.T) {
 func TestSameStreamOneHourLaterNotReported(t *testing.T) {
 	tr := testutil.NewTracker()
 	setupDB(tr.C)
-	baselineTime := time.Now().UTC()
+	fixedClock := clock.OverrideByFixed(time.Now())
+	startedAt := clock.NowUTC()
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime.Add(-1*time.Hour - 10*time.Minute),
+			StartedAt: startedAt,
 		},
 	})
 
 	tr.Send([]stream.Stream{})
+	tr.AwaitReport()
+	fixedClock.Add(time.Hour + time.Minute)
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
 			ID:        "stream1",
-			StartedAt: baselineTime,
+			StartedAt: startedAt,
 		},
 	})
 
-	tr.Close()
-	tr.Wait()
+	tr.CloseAndWait()
 
 	testutil.LogReports(t, tr.C)
+
+	store := tr.Room("room1")
+	expectStreamReports(t, store.Streams, "stream1")
+}
+
+func TestObservedTimeIsUpdatedWhenSeeingStreamAgain(t *testing.T) {
+	tr := testutil.NewTracker()
+	setupDB(tr.C)
+	fixedClock := clock.OverrideByFixed(time.Now())
+
+	startedAt := clock.NowUTC()
+	observed1 := clock.NowUTC()
+	observed2 := observed1.Add(time.Hour)
+
+	tr.Send([]stream.Stream{
+		{
+			User:      stream.User{ID: "user1"},
+			ID:        "stream1",
+			StartedAt: startedAt,
+		},
+	})
+
+	tr.AwaitReport()
+	testutil.VerifyObservedAt(t, tr.C, observed1)
+	fixedClock.Add(time.Hour)
+
+	tr.Send([]stream.Stream{
+		{
+			User:      stream.User{ID: "user1"},
+			ID:        "stream1",
+			StartedAt: startedAt,
+		},
+	})
+
+	tr.CloseAndWait()
+	testutil.VerifyObservedAt(t, tr.C, observed2)
 
 	store := tr.Room("room1")
 	expectStreamReports(t, store.Streams, "stream1")

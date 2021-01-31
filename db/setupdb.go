@@ -13,9 +13,10 @@ func SetupDB(c context.Context) {
 	)`)
 
 	db.MustExecContext(c, `CREATE TABLE IF NOT EXISTS [reports] (
-		[user_id]    TEXT NOT NULL,
-		[stream_id]  TEXT NOT NULL,
-		[started_at] TEXT NOT NULL,
+		[user_id]     TEXT NOT NULL,
+		[stream_id]   TEXT NOT NULL,
+		[started_at]  TEXT NOT NULL,
+		[observed_at] TEXT NOT NULL,
 
 		UNIQUE ([stream_id], [started_at])
 	)`)

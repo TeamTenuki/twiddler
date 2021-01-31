@@ -15,7 +15,7 @@ type Watcher struct {
 
 func NewWatcher() *Watcher {
 	return &Watcher{
-		c: make(chan []stream.Stream, 1),
+		c: make(chan []stream.Stream),
 	}
 }
 
