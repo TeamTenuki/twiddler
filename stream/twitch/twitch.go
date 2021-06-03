@@ -113,15 +113,15 @@ func (f *Fetcher) userInfo(c context.Context, userID string) (stream.User, error
 
 	channelURL, err := url.Parse(fmt.Sprintf("https://twitch.tv/%s", uc.Login))
 	if err != nil {
-		return stream.User{}, nil
+		return stream.User{}, err
 	}
 	pictureURL, err := url.Parse(uc.ProfileImageURL)
 	if err != nil {
-		return stream.User{}, nil
+		return stream.User{}, err
 	}
 	offlineImageUrl, err := url.Parse(uc.OfflineImageURL)
 	if err != nil {
-		return stream.User{}, nil
+		return stream.User{}, err
 	}
 
 	u := stream.User{
