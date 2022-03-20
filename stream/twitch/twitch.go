@@ -139,7 +139,7 @@ func (f *Fetcher) userInfo(c context.Context, userID string) (stream.User, error
 	return u, nil
 }
 
-func (f *Fetcher) get(c context.Context, u string, d interface{}) error {
+func (f *Fetcher) get(c context.Context, u string, d any) error {
 	req, err := f.newRequest(c, u)
 	if err != nil {
 		return err
