@@ -3,9 +3,7 @@ package tracker
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -41,8 +39,9 @@ func (t *Tracker) Track(c context.Context) {
 
 		reportable := t.excludeKnown(streams)
 		reportable = t.excludeReported(c, reportable)
+		reportable = t.excludeDuplicates(c, reportable)
 
-		rooms, err := t.rooms(c)
+		rooms, err := db.RoomsAll(c)
 		if err != nil {
 			log.Printf("Failed to retrieve rooms: %s", err)
 			continue
@@ -76,47 +75,30 @@ func (t *Tracker) setLive(s []stream.Stream) {
 }
 
 func (t *Tracker) store(c context.Context, s *stream.Stream) {
-	db := db.FromContext(c)
-
-	_, t.err = db.ExecContext(c, `INSERT INTO [reports] ([user_id], [stream_id], [started_at], [observed_at])
-VALUES (?, ?, ?, ?)`,
-		s.User.ID,
-		s.ID,
-		s.StartedAt.Format(time.RFC3339),
-		clock.NowUTC().Format(time.RFC3339),
-	)
+	t.err = db.ReportStore(c, db.Report{
+		UserID:     s.User.ID,
+		StreamID:   s.ID,
+		StartedAt:  s.StartedAt,
+		ObservedAt: clock.NowUTC(),
+	})
 }
 
 func (t *Tracker) updateObservedAt(c context.Context, ss []stream.Stream) {
-	db := db.FromContext(c)
-
-	ids := make([]string, len(ss))
+	streamIDs := make([]string, len(ss))
 	for i := range ss {
-		ids[i] = "'" + ss[i].ID + "'"
+		streamIDs[i] = ss[i].ID
 	}
 
-	_, t.err = db.ExecContext(
-		c,
-		fmt.Sprintf(`UPDATE [reports] SET [observed_at] = ? WHERE [stream_id] IN (%s)`, strings.Join(ids, ", ")),
-		clock.NowUTC().Format(time.RFC3339),
-	)
+	t.err = db.ReportObserveForStreams(c, streamIDs, clock.NowUTC())
 }
 
-func (t *Tracker) rooms(c context.Context) (rooms []string, err error) {
-	db := db.FromContext(c)
-
-	err = db.SelectContext(c, &rooms, `SELECT [room_id] FROM [rooms]`)
-
-	return rooms, err
-}
-
-func (t *Tracker) report(c context.Context, rs []string, s *stream.Stream) {
+func (t *Tracker) report(c context.Context, rs []db.Room, s *stream.Stream) {
 	if t.err != nil {
 		return
 	}
 
 	for _, r := range rs {
-		if err := t.m.MessageStream(c, r, s); err != nil {
+		if err := t.m.MessageStream(c, r.ID, s); err != nil {
 			t.err = err
 
 			break
@@ -146,7 +128,7 @@ func (t *Tracker) excludeReported(c context.Context, ss []stream.Stream) []strea
 
 	for _, s := range ss {
 		// Do not report stream with the same stream ID twice.
-		if t.wasReported(c, s) {
+		if yes, _ := db.ReportWasReported(c, s.ID); yes {
 			continue
 		}
 
@@ -170,32 +152,29 @@ func (t *Tracker) excludeReported(c context.Context, ss []stream.Stream) []strea
 	return reportable
 }
 
-func (t *Tracker) wasReported(c context.Context, s stream.Stream) bool {
-	db := db.FromContext(c)
+func (t *Tracker) excludeDuplicates(c context.Context, ss []stream.Stream) []stream.Stream {
+	reportable := make([]stream.Stream, 0)
+	seen := make(map[stream.Stream]struct{})
 
-	return sql.ErrNoRows != db.GetContext(c, new(string), `SELECT [started_at]
-	FROM [reports]
-	WHERE [stream_id] = ?
-	LIMIT 1`,
-		s.ID)
+	for _, s := range ss {
+		if _, yes := seen[s]; !yes {
+			reportable = append(reportable, s)
+			seen[s] = struct{}{}
+		}
+	}
+
+	return reportable
 }
 
 func (t *Tracker) lastObservedTimeForUser(c context.Context, s *stream.Stream) (time.Time, error) {
-	db := db.FromContext(c)
+	report, err := db.ReportLatestByUser(c, s.User.ID)
 
-	// Default date/time that will be used if there are no rows for given channel.
-	var reportTime = "2006-01-02T15:04:05Z"
-
-	err := db.GetContext(c, &reportTime, `SELECT [observed_at]
-	FROM [reports]
-	WHERE [user_id] = ?
-	ORDER BY datetime([observed_at]) DESC
-	LIMIT 1`,
-		s.User.ID)
-
-	if err != nil && err != sql.ErrNoRows {
+	switch {
+	default:
+		return report.ObservedAt, nil
+	case err == sql.ErrNoRows:
+		return time.Time{}, nil
+	case err != nil:
 		return time.Time{}, err
 	}
-
-	return time.Parse(time.RFC3339, reportTime)
 }

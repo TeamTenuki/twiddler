@@ -239,29 +239,30 @@ func TestObservedTimeIsUpdatedWhenSeeingStreamAgain(t *testing.T) {
 	startedAt := clock.NowUTC()
 	observed1 := clock.NowUTC()
 	observed2 := observed1.Add(time.Hour)
+	streamID := "stream1"
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
-			ID:        "stream1",
+			ID:        streamID,
 			StartedAt: startedAt,
 		},
 	})
 
 	tr.AwaitReport()
-	testutil.VerifyObservedAt(t, tr.C, observed1)
+	testutil.VerifyObservedAt(t, tr.C, streamID, startedAt, observed1)
 	fixedClock.Add(time.Hour)
 
 	tr.Send([]stream.Stream{
 		{
 			User:      stream.User{ID: "user1"},
-			ID:        "stream1",
+			ID:        streamID,
 			StartedAt: startedAt,
 		},
 	})
 
 	tr.CloseAndWait()
-	testutil.VerifyObservedAt(t, tr.C, observed2)
+	testutil.VerifyObservedAt(t, tr.C, streamID, startedAt, observed2)
 
 	store := tr.Room("room1")
 	expectStreamReports(t, store.Streams, "stream1")

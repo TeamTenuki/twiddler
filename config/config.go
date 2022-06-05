@@ -49,18 +49,16 @@ func Dir() (string, error) {
 // Parse tries to parse config from a given path.
 // If path is an empty string, it will try to parse from a default config directory (see Dir).
 func Parse(path string) (*Config, error) {
-	configFilepath := path
-
 	if path == "" {
 		configDir, err := Dir()
 		if err != nil {
 			return nil, err
 		}
 
-		configFilepath = filepath.Join(configDir, "config.json")
+		path = filepath.Join(configDir, "config.json")
 	}
 
-	f, err := os.Open(configFilepath)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}

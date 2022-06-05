@@ -15,39 +15,30 @@ type report struct {
 	ObservedAt string `db:"observed_at"`
 }
 
-func VerifyObservedAt(t *testing.T, c context.Context, expectedTime time.Time) {
+func VerifyObservedAt(t *testing.T, c context.Context, streamID string, startedAt time.Time, expectedTime time.Time) {
 	t.Helper()
 
-	db := db.FromContext(c)
-
-	var rep report
-	err := db.GetContext(c, &rep, `SELECT [stream_id], [user_id], [started_at], [observed_at] FROM [reports]`)
+	rep, err := db.ReportFor(c, streamID, startedAt)
 	if err != nil {
 		t.Errorf("Failed to retrieve reports: %s", err)
+		return
 	}
 
-	dt, err := time.Parse(time.RFC3339, rep.ObservedAt)
-	if err != nil {
-		t.Errorf("Failed to parse observed_at: %s", err)
-	}
-
-	if dt != expectedTime.Truncate(time.Second) {
-		t.Errorf("Time mismatch, expected %q, got %q", expectedTime, dt)
+	if rep.ObservedAt != expectedTime.Truncate(time.Second) {
+		t.Errorf("Time mismatch, expected %q, got %q", expectedTime, rep.ObservedAt)
 	}
 }
 
 func LogReports(t *testing.T, c context.Context) {
 	t.Helper()
 
-	db := db.FromContext(c)
-
-	var reports []report
-	err := db.Select(&reports, `SELECT [stream_id], [user_id], [started_at], [observed_at] FROM [reports]`)
+	reps, err := db.ReportsAll(c)
 	if err != nil {
 		t.Errorf("Failed to retrieve reports: %s", err)
+		return
 	}
 
-	for i := range reports {
-		t.Logf("%#v", reports[i])
+	for _, rep := range reps {
+		t.Logf("%#v", rep)
 	}
 }
